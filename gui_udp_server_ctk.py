@@ -15,7 +15,6 @@ import subprocess
 import threading
 import csv
 import time
-from datetime import datetime
 from pathlib import Path
 import tkinter as tk
 from tkinter import PhotoImage
@@ -30,18 +29,11 @@ except Exception:
 
 # Simple table implemented with frames on a canvas to allow black borders per cell
 class TableCanvas(tk.Frame):
-    def __init__(self, parent, cols, col_widths=None, row_height=200, header_bg='#e6e6e6'):
+    def __init__(self, parent, cols, col_widths=None, row_height=28, header_bg='#e6e6e6'):
         super().__init__(parent)
         self.cols = cols
         self.col_widths = col_widths or [120] * len(cols)
         self.row_height = row_height
-        self.main_window = None
-        
-        # Trouver la fenêtre principale
-        widget = parent
-        while widget and not hasattr(widget, '_download_file'):
-            widget = widget.master
-        self.main_window = widget
 
         self.canvas = tk.Canvas(self, bg='white', highlightthickness=0)
         self.vsb = ttk.Scrollbar(self, orient='vertical', command=self.canvas.yview)
@@ -82,89 +74,20 @@ class TableCanvas(tk.Frame):
         self.canvas.itemconfigure(self.window, width=max(self.inner.winfo_reqwidth(), ev.width))
 
     def insert_row(self, values):
-        try:
-            # create a row with black borders using an outer frame per cell
-            row = tk.Frame(self.rows_container, bg='white')
-            row.pack(fill='x')
-            
-            # Vérifier que nous avons assez de colonnes
-            num_cols = min(len(self.cols), len(values))
-            
-            for i in range(num_cols):
-                w = self.col_widths[i] if i < len(self.col_widths) else 120
-                v = values[i] if i < len(values) else ""
-                
-                # Créer le cadre extérieur noir (bordure)
-                cell_outer = tk.Frame(row, bg='black', width=w, height=self.row_height)
-                cell_outer.pack(side='left')
-                cell_outer.pack_propagate(False)
-                
-                # Créer un frame intérieur pour le contenu
-                inner_frame = tk.Frame(cell_outer, bg='white')
-                inner_frame.pack(fill='both', expand=True, padx=1, pady=1)
-                
-                # Si c'est la colonne Message (index 2) et que c'est un fichier CSV
-                if i == 2 and isinstance(v, str) and '|' in v and v.startswith('CSV_START|'):
-                    try:
-                        # Extraire le nom du fichier et le contenu
-                        parts = v.split('|', 2)
-                        if len(parts) >= 3:
-                            filename = parts[1]
-                            file_content = parts[2]
-                            
-                            # Afficher le nom du fichier à gauche
-                            file_label = tk.Label(
-                                inner_frame, 
-                                text=filename,
-                                bg='white',
-                                anchor='w',
-                                padx=5
-                            )
-                            file_label.pack(side='left', fill='x', expand=True)
-                            
-                            # Ajouter le bouton de téléchargement à droite
-                            btn = tk.Button(
-                                inner_frame,
-                                text="📥",  # Add back the download icon
-                                command=lambda c=file_content, n=filename: self.main_window._download_file(c, n) if self.main_window else None,
-                                bd=0,
-                                bg='white',
-                                activebackground='#f0f0f0',
-                                font=('Arial', 12),
-                                relief='flat'
-                            )
-                            btn.pack(side='right', padx=5)
-                            
-                            # Forcer l'affichage du bouton
-                            btn.update()
-                            continue  # Skip the default label creation
-                        
-                    except Exception as e:
-                        print(f"Erreur création bouton téléchargement: {e}")
-                        tk.Label(inner_frame, text=str(v), bg='white', anchor='w').pack(fill='both', expand=True)
-                else:
-                    # Pour les autres cellules, afficher le texte normalement
-                    tk.Label(
-                        inner_frame, 
-                        text=str(v)[:100],  # Limiter la longueur du texte
-                        bg='white', 
-                        anchor='w' if i == 2 else 'center',
-                        wraplength=w-10,  # Ajuster pour le padding
-                        justify='left' if i == 2 else 'center'
-                    ).pack(fill='both', expand=True)
-            
-            # Ajouter la rangée à la liste
-            self.rows.append(row)
-            
-            # Mettre à jour la zone de défilement
-            self.after(10, self._update_scrollregion)
-            
-        except Exception as e:
-            print(f"Erreur dans insert_row: {e}")
-    
-    def _update_scrollregion(self):
-        """Met à jour la zone de défilement du canvas"""
-        self.canvas.configure(scrollregion=self.canvas.bbox('all'))
+        # create a row with black borders using an outer frame per cell
+        row = tk.Frame(self.rows_container, bg='white')
+        row.pack(fill='x')
+        for i, v in enumerate(values):
+            w = self.col_widths[i] if i < len(self.col_widths) else 120
+            cell_outer = tk.Frame(row, bg='black', width=w, height=self.row_height)
+            cell_outer.pack(side='left')
+            cell_outer.pack_propagate(False)
+            # inner white label
+            lbl = tk.Label(cell_outer, text=str(v), bg='white', anchor='w' if i == 2 else 'center')
+            lbl.pack(fill='both', expand=True, padx=2, pady=2)
+        self.rows.append(row)
+        # update scrollregion
+        self.after(10, lambda: self.canvas.configure(scrollregion=self.canvas.bbox('all')))
 
     def clear(self):
         for r in self.rows:
@@ -186,179 +109,6 @@ class UDPServerCTK(ctk.CTk if ctk else tk.Tk):
             self.status_label.configure(text=f"Server running on {host}:{port} (Public IP: 193.95.82.45)")
         else:
             self.status_label.configure(text='Server Disconnected')
-            
-    def import_csv(self):
-        """Import messages from a CSV file"""
-        file_path = filedialog.askopenfilename(
-            title="Sélectionner un fichier CSV",
-            filetypes=[("Fichiers CSV", "*.csv"), ("Tous les fichiers", "*.*")]
-        )
-        
-        if not file_path:
-            return  # User cancelled the dialog
-            
-        try:
-            with open(file_path, 'r', encoding='utf-8') as file:
-                reader = csv.reader(file)
-                header = next(reader, None)  # Skip header if exists
-                
-                for row in reader:
-                    if len(row) >= 3:  # Ensure we have at least IP, Port, Message
-                        ip = row[0].strip()
-                        port = row[1].strip()
-                        message = row[2].strip()
-                        timestamp = row[3] if len(row) > 3 else time.strftime("%Y-%m-%d %H:%M:%S")
-                        
-                        # Add to messages list and update UI
-                        msg_data = (ip, port, message, timestamp)
-                        self.messages.append(msg_data)
-                        self.table.insert_row(msg_data)
-                
-                # Update message counter
-                self.message_counter.configure(text=str(len(self.messages)))
-                self._append_log(f'Fichier CSV importé : {os.path.basename(file_path)}')
-                
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible de lire le fichier CSV : {str(e)}")
-            self._append_log(f'Erreur lors de l\'import du CSV : {str(e)}')
-            
-    def _handle_message(self, data, addr):
-        """Gère les messages entrants et les fichiers CSV"""
-        ip, port = addr
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        
-        try:
-            # Décoder les données
-            data_str = data.decode('utf-8')
-            self._append_log(f'Données brutes reçues: {data_str[:100]}...')  # Afficher les 100 premiers caractères
-            
-            # Vérifier si c'est un fichier CSV
-            if data_str.startswith('CSV_START|'):
-                try:
-                    # Séparer l'en-tête du contenu
-                    parts = data_str.split('|', 2)  # Sépare en 3 parties : 'CSV_START', 'nom_du_fichier', 'contenu...'
-                    if len(parts) < 3:
-                        raise ValueError("Format de fichier invalide")
-                        
-                    filename = parts[1].strip()
-                    content = parts[2]
-                    
-                    # Nettoyer le nom du fichier
-                    if not filename.endswith('.csv'):
-                        filename += '.csv'
-                    
-                    self._append_log(f'Fichier détecté: {filename}, Taille: {len(content)} caractères')
-                    
-                    if not content.strip():
-                        raise ValueError("Fichier vide reçu")
-                    
-                    # Créer le dossier de sauvegarde
-                    save_dir = os.path.join(os.path.dirname(__file__), 'received_csv')
-                    os.makedirs(save_dir, exist_ok=True)
-                    
-                    # Sauvegarder le fichier
-                    filepath = os.path.join(save_dir, filename)
-                    with open(filepath, 'w', encoding='utf-8') as f:
-                        f.write(content)
-                    
-                    # Créer le contenu à afficher dans la colonne message
-                    # On crée un frame pour contenir le nom du fichier et le bouton
-                    message_frame = tk.Frame()
-                    
-                    # Ajouter le nom du fichier
-                    file_label = tk.Label(message_frame, text=filename, anchor='w', bg='white')
-                    file_label.pack(side='left', fill='x', expand=True, padx=5)
-                    
-                    # Ajouter le bouton de téléchargement
-                    btn = tk.Button(
-                        message_frame,
-                        text="📥",
-                        command=lambda c=content, n=filename: self._download_file(c, n),
-                        bd=0,
-                        bg='white',
-                        activebackground='#f0f0f0',
-                        font=('Arial', 12)
-                    )
-                    btn.pack(side='right', padx=5)
-                    
-                    # Ajouter la ligne au tableau avec le contenu réel
-                    self._add_message(ip, str(port), content, timestamp)
-                    
-                    # Ajouter aux logs
-                    self._append_log(f'Fichier reçu: {filename} ({len(content)} octets)')
-                    
-                    # Mettre à jour le compteur de messages
-                    if hasattr(self, 'message_counter'):
-                        self.message_counter.configure(text=f'Messages: {len(self.messages) + 1}')
-                    
-                except Exception as e:
-                    error_msg = f'Erreur traitement fichier: {str(e)}'
-                    self._append_log(error_msg)
-                    self._add_message(ip, port, error_msg, timestamp)
-            else:
-                # Traitement des messages normaux
-                self._add_message(ip, str(port), data_str.strip(), timestamp)
-                self._append_log(f'Message de {ip}:{port}: {data_str.strip()}')
-        
-        except Exception as e:
-            error_msg = f'Erreur: {str(e)}'
-            self._append_log(error_msg)
-            self._add_message(ip, port, error_msg, timestamp)
-    
-    def _download_file(self, content, filename):
-        """Ouvre une boîte de dialogue pour enregistrer le fichier
-        
-        Args:
-            content: Le contenu du fichier à enregistrer
-            filename: Nom du fichier à suggérer dans la boîte de dialogue
-        """
-        try:
-            # Demander où sauvegarder le fichier
-            save_path = filedialog.asksaveasfilename(
-                defaultextension='.csv',
-                initialfile=filename,
-                filetypes=[("Fichiers CSV", "*.csv"), ("Tous les fichiers", "*.*")]
-            )
-            
-            if not save_path:  # Si l'utilisateur a annulé
-                return False
-                
-            # Toujours écrire le contenu directement dans le fichier
-            with open(save_path, 'w', encoding='utf-8') as f:
-                f.write(str(content))
-                    
-            self._append_log(f'Fichier enregistré : {save_path}')
-            return True
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible d'enregistrer le fichier: {str(e)}")
-            self._append_log(f'Erreur lors de la sauvegarde: {str(e)}')
-    
-    def _add_message(self, ip, port, message, ts):
-        """Ajoute un message à l'interface"""
-        try:
-            # S'assurer que les données sont au bon format
-            ip = str(ip)
-            port = str(port)
-            message = str(message)
-            ts = str(ts)
-            
-            # Créer le tuple de données
-            msg_data = (ip, port, message, ts)
-            
-            # Ajouter aux messages et au tableau
-            self.messages.append(msg_data)
-            self.table.insert_row(msg_data)
-            
-            # Mettre à jour le compteur
-            if hasattr(self, 'message_counter'):
-                self.message_counter.configure(text=f'Messages: {len(self.messages)}')
-                
-            # Forcer la mise à jour de l'interface
-            self.update_idletasks()
-            
-        except Exception as e:
-            self._append_log(f'Erreur dans _add_message: {str(e)}')
-        
     def __init__(self):
         if not ctk:
             # fallback: show message and exit after user sees instructions
@@ -377,7 +127,7 @@ class UDPServerCTK(ctk.CTk if ctk else tk.Tk):
         ctk.set_default_color_theme("blue")
 
         self.title("UDP Server — Dashboard")
-        self.geometry("1200x630")
+        self.geometry("1002x630")
         self.resizable(False, False)
 
         # Load the application icon
@@ -429,12 +179,8 @@ class UDPServerCTK(ctk.CTk if ctk else tk.Tk):
         ctk.CTkEntry(left, textvariable=self.port_var, width=200).grid(row=4, column=0, padx=16, pady=(4,10))
 
         self.start_btn = ctk.CTkButton(left, text="Start Server", command=self.toggle_server, width=160)
-        self.start_btn.grid(row=5, column=0, padx=16, pady=(6, 8))
-        
-        # Bouton pour importer un fichier CSV
-        self.import_btn = ctk.CTkButton(left, text="Importer CSV", command=self.import_csv, width=160)
-        self.import_btn.grid(row=6, column=0, padx=16, pady=(8, 4))
-        
+        self.start_btn.grid(row=5, column=0, padx=16, pady=(6,8))
+
         # indicator
         indicator_size = 64  # Size of the indicator in pixels
         
@@ -443,7 +189,7 @@ class UDPServerCTK(ctk.CTk if ctk else tk.Tk):
         
         # Create a frame to hold the canvas with matching background
         indicator_frame = ctk.CTkFrame(left, fg_color='transparent')
-        indicator_frame.grid(row=7, column=0, pady=(20,0))  # Déplacé plus bas avec plus d'espace
+        indicator_frame.grid(row=6, column=0, pady=(8,0))
         
         # Create canvas with matching background
         self.ind_canvas = tk.Canvas(indicator_frame, width=indicator_size, height=indicator_size,
@@ -555,8 +301,8 @@ class UDPServerCTK(ctk.CTk if ctk else tk.Tk):
 
         cols = ('IP', 'Port', 'Message', 'Time')
         # create custom table with black borders per cell
-        col_widths = [160, 80, 508, 147]
-        self.table = TableCanvas(table_frame, cols=cols, col_widths=col_widths, row_height=40)
+        col_widths = [160, 80, 310, 147]
+        self.table = TableCanvas(table_frame, cols=cols, col_widths=col_widths, row_height=28)
         self.table.grid(row=0, column=0, sticky='nsew')
 
         # buttons: Download and Clear
@@ -679,44 +425,17 @@ class UDPServerCTK(ctk.CTk if ctk else tk.Tk):
 
     # removed subprocess stdout reader; server now calls _on_message directly
     def _on_message(self, ip, port, message):
-        try:
-            print(f"DEBUG: _on_message received - IP: {ip}, Port: {port}, Message: {message[:100]}...")  # Log first 100 chars
-            # Get current time with milliseconds in YYYY-MM-DD HH:MM:SS:MS format
-            ms = int(time.time() * 1000) % 1000
-            ts = time.strftime('%Y-%m-%d %H:%M:%S:') + f"{ms:03d}"
-            # schedule GUI update
-            print(f"DEBUG: Scheduling _add_message with timestamp: {ts}")
-            self.after(1, self._add_message, ip, str(port), message, ts)
-        except Exception as e:
-            print(f"ERROR in _on_message: {str(e)}")
-            import traceback
-            traceback.print_exc()
+        ts = time.strftime('%Y-%m-%d %H:%M:%S')
+        # schedule GUI update
+        self.after(1, self._add_message, ip, str(port), message, ts)
 
     def _add_message(self, ip, port, message, ts):
-        try:
-            # Ensure all values are strings
-            ip = str(ip)
-            port = str(port)
-            message = str(message)
-            ts = str(ts)
-            
-            # Create the data tuple for the table
-            msg_data = (ip, port, message, ts)
-            
-            # Add to messages and table
-            self.messages.append(msg_data)
-            self.table.insert_row(msg_data)
-            
-            # Update the log and counter
-            self._append_log(f"Message from {ip}:{port}: {message}")
-            if hasattr(self, 'message_counter'):
-                self.message_counter.configure(text=f'Messages: {len(self.messages)}')
-                
-            # Force UI update
-            self.update_idletasks()
-            
-        except Exception as e:
-            self._append_log(f'Error in _add_message: {str(e)}')
+        self.messages.append((ip, port, message, ts))
+        self.table.insert_row((ip, port, message, ts))
+        self._append_log(f"Message from {ip}:{port}: {message}")
+        # Update message counter
+        if hasattr(self, 'message_counter'):
+            self.message_counter.configure(text=f'Messages: {len(self.messages)}')
 
     def _handle_server_line(self, line: str):
         # append to small log
@@ -738,87 +457,40 @@ class UDPServerCTK(ctk.CTk if ctk else tk.Tk):
         except Exception as e:
             messagebox.showerror('Save error', str(e))
 
-    def export_csv(self):
-        """Export messages to a CSV file"""
-        if not self.messages:
-            messagebox.showinfo("Aucun message", "Il n'y a aucun message à exporter.")
-            return
-            
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            filetypes=[("Fichiers CSV", "*.csv"), ("Tous les fichiers", "*.*")],
-            title="Enregistrer sous"
-        )
-        
-        if not file_path:
-            return  # User cancelled the dialog
-            
-        try:
-            with open(file_path, 'w', newline='', encoding='utf-8') as file:
-                # Écrire l'en-tête avec des tabulations comme séparateurs
-                file.write("Adresse IP\tPort\tMessage\tHorodatage\n")
-                
-                # Écrire les données
-                for msg in self.messages:
-                    # Nettoyer chaque champ
-                    ip = str(msg[0]).strip() if len(msg) > 0 else ""
-                    port = str(msg[1]).strip() if len(msg) > 1 else ""
-                    message = str(msg[2]).strip() if len(msg) > 2 else ""
-                    timestamp = str(msg[3]).strip() if len(msg) > 3 else ""
-                    
-                    # Écrire la ligne avec des tabulations comme séparateurs
-                    file.write(f"{ip}\t{port}\t{message}\t{timestamp}\n")
-                    
-            messagebox.showinfo("Export réussi", f"Les messages ont été exportés avec succès vers :\n{file_path}")
-            self._append_log(f'Export CSV réussi : {os.path.basename(file_path)}')
-            
-        except Exception as e:
-            messagebox.showerror("Erreur d'export", f"Une erreur est survenue lors de l'export :\n{str(e)}")
-            self._append_log(f'Erreur lors de l\'export CSV : {str(e)}')
-
     def clear_messages(self):
-        """Vider tous les messages du tableau et réinitialiser le compteur"""
         if not self.messages:
             return
-        if not messagebox.askyesno('Vider les messages', 'Êtes-vous sûr de vouloir effacer tous les messages ?'):
+        if not messagebox.askyesno('Clear messages', 'Are you sure you want to clear all messages?'):
             return
         self.messages.clear()
-        self.table.clear()
-        # Réinitialiser le compteur de messages à 0
+        # clear custom table rows
+        try:
+            self.table.clear()
+        except Exception:
+            pass
+        # Reset message counter to 0
         self.message_counter.configure(text='0')
-        self._append_log('Messages effacés')
-
+        self._append_log('Messages cleared')
     def filter_messages(self):
-        keyword = self.search_var.get().strip().lower()
-        if not keyword:
-            self.reset_filter()
-            return
+            keyword = self.search_var.get().strip().lower()
+            if not keyword:
+                return
 
-        # Clear the current table
-        self.table.clear()
-        
-        # Filter messages based on keyword
-        filtered = []
-        for msg in self.messages:
-            # Check if any field contains the keyword
-            if any(keyword in str(field).lower() for field in msg):
-                filtered.append(msg)
-        
-        # Rebuild the table with filtered messages
-        for msg in filtered:
-            self.table.insert_row(msg)
+            self.table.clear()
+            filtered = [msg for msg in self.messages if any(keyword in str(field).lower() for field in msg)]
+            for msg in filtered:
+                self.table.insert_row(msg)
 
-        self._append_log(f'Filtrage avec le mot-clé : "{keyword}"')
-        self.message_counter.configure(text=f'{len(filtered)} / {len(self.messages)}')
+            self._append_log(f'Filtered messages with keyword: \"{keyword}\"')
+            self.message_counter.configure(text=f'{len(filtered)} / {len(self.messages)}')
 
     def reset_filter(self):
-        self.search_var.set('')
-        self.table.clear()
-        # Rebuild the full table
-        for msg in self.messages:
-            self.table.insert_row(msg)
-        self.message_counter.configure(text=f'Messages: {len(self.messages)}')
-        self._append_log('Filtre réinitialisé')
+            self.search_var.set('')
+            self.table.clear()
+            for msg in self.messages:
+                self.table.insert_row(msg)
+            self.message_counter.configure(text=f'{len(self.messages)}')
+            self._append_log('Filter reset')
 
     def _periodic(self):
         # update indicator according to process
